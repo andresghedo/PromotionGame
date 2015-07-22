@@ -398,40 +398,35 @@ class Ui_Dialog(object):
         self.l36.setObjectName(_fromUtf8("l36"))
         self.gridLayout.addWidget(self.l36, 3, 6, 1, 1)
         self.label = QtGui.QLabel(Dialog)
-        self.label.setGeometry(QtCore.QRect(440, 140, 121, 31))
+        self.label.setGeometry(QtCore.QRect(400, 210, 121, 31))
         self.label.setObjectName(_fromUtf8("label"))
         self.label_17 = QtGui.QLabel(Dialog)
-        self.label_17.setGeometry(QtCore.QRect(440, 20, 121, 31))
+        self.label_17.setGeometry(QtCore.QRect(400, 90, 121, 31))
         self.label_17.setObjectName(_fromUtf8("label_17"))
         self.label_20 = QtGui.QLabel(Dialog)
-        self.label_20.setGeometry(QtCore.QRect(420, 170, 101, 81))
+        self.label_20.setGeometry(QtCore.QRect(400, 240, 101, 81))
         self.label_20.setAlignment(QtCore.Qt.AlignLeading|QtCore.Qt.AlignLeft|QtCore.Qt.AlignTop)
         self.label_20.setObjectName(_fromUtf8("label_20"))
         self.label_21 = QtGui.QLabel(Dialog)
-        self.label_21.setGeometry(QtCore.QRect(420, 50, 121, 81))
+        self.label_21.setGeometry(QtCore.QRect(400, 120, 121, 81))
         self.label_21.setAlignment(QtCore.Qt.AlignLeading|QtCore.Qt.AlignLeft|QtCore.Qt.AlignTop)
         self.label_21.setObjectName(_fromUtf8("label_21"))
 
         self.bottone = QtGui.QPushButton(Dialog)
         self.bottone.setGeometry(QtCore.QRect(240, 390, 61, 31))
         self.bottone.setObjectName(_fromUtf8("bottone"))
-        self.bottone.setText("Muovi")
+        self.bottone.setText("Move")
 
         self.comboBox = QtGui.QComboBox(Dialog)
         self.comboBox.setGeometry(QtCore.QRect(140, 390, 61, 31))
         self.comboBox.setObjectName(_fromUtf8("comboBox"))
-        #aggiungi elementi
-        #self.comboBox.addItem("ssz")
-        #self.comboBox.addItem("ssb")
-        #self.comboBox.addItem("ssa")
 
-        #self.bottone.clicked.connect(callbackperGUI2)
         self.retranslateUi(Dialog, tabella)
         QtCore.QMetaObject.connectSlotsByName(Dialog)
         self.setStyleLabel()
 
     def retranslateUi(self, Dialog, tabella):
-        Dialog.setWindowTitle(_translate("Dialog", "Promotion Game", None))
+        Dialog.setWindowTitle(_translate("Dialog", "Chess Promotion Game", None))
         self.l19.setText(_translate("Dialog", "19", None))
         self.l54.setText(_translate("Dialog", "54", None))
         self.l112.setText(_translate("Dialog", "112", None))
@@ -552,10 +547,10 @@ class Ui_Dialog(object):
         self.l0.setText(_translate("Dialog", "0", None))
         self.l38.setText(_translate("Dialog", "38", None))
         self.l36.setText(_translate("Dialog", "36", None))
-        self.label.setText(_translate("Dialog", "PLAYER", None))
-        self.label_17.setText(_translate("Dialog", "CPU", None))
-        self.label_20.setText(_translate("Dialog", "     Statistiche: ", None))
-        self.label_21.setText(_translate("Dialog", "     Statistiche: ", None))
+        self.label.setText(_translate("Dialog", "PLAYER Statistics:", None))
+        self.label_17.setText(_translate("Dialog", "CPU Statistics:", None))
+        self.label_20.setText(_translate("Dialog", "8 pawns", None))
+        self.label_21.setText(_translate("Dialog", "8 pawns", None))
         #self.colora(tabella)
 
     def colora(self, t,dadove=None):
@@ -566,13 +561,13 @@ class Ui_Dialog(object):
             label_posizione.setText(p)
             img = None
             if p == 'P':
-                img = QtGui.QPixmap("/home/andrea/Scrivania/ChessImages/pawn-black16.png")
+                img = QtGui.QPixmap("./ChessImages/pawn-black16.png")
             if p == 'p':
-                img = QtGui.QPixmap("/home/andrea/Scrivania/ChessImages/pawn-white16.png")
+                img = QtGui.QPixmap("./ChessImages/pawn-white16.png")
             if p == 'K':
-                img = QtGui.QPixmap("/home/andrea/Scrivania/ChessImages/king-black16.png")
+                img = QtGui.QPixmap("./ChessImages/king-black16.png")
             if p == 'k':
-                img = QtGui.QPixmap("/home/andrea/Scrivania/ChessImages/king-white16.png")
+                img = QtGui.QPixmap("./ChessImages/king-white16.png")
             if img is not None:
                 label_posizione.setPixmap(img)
         self.setStyleLabel()

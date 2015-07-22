@@ -4,25 +4,22 @@
 from __future__ import print_function
 import sys
 from itertools import count
-from collections import OrderedDict, namedtuple
+from collections import namedtuple
 from graficaS import *
 
-path_file_debug = "/home/andrea/Scrivania/DEBUG-CHESS/"
-# The table size is the maximum number of elements in the transposition table.
-TABLE_SIZE = 1e6
-
-# This constant controls how much time we spend on looking for optimal moves.
-NODES_SEARCHED = 1e3
-
-
-# Mate value must be greater than 8*queen + 2*(rook+knight+bishop)
-# King value is set to twice this value such that if the opponent is
-# 8 queens up, but we got the king, we still exceed MATE_VALUE.
-MATE_VALUE = 99999999#30000
-
+# variabili globali di servizio
+ui = None
+ChessBoard = None
+Dialog = None
+app = None
+inexec = False
+# variabile globale che identifica la prossima mossa CPU
+move_cpu = None
+# costanti di profondità e infinito
+depth = 5
+INF = 9999999999
 # posizioni border della mia scacchiera in coordinate = interi
-A1, H1, A8, H8 = 91, 98, 21, 28    #stanno a significare i posti in valori numerici
-
+A1, H1, A8, H8 = 91, 98, 21, 28
 # confgurazione di inizio --> solo il Re nelle rispettive prime file e tutti i pedoni nelle seconde
 config_iniziale = (
     '         \n'  #   0 -  9
@@ -39,6 +36,11 @@ config_iniziale = (
     '          '   # 110 -119
 )
 
+
+# dict PLAYER e CPU per valutazione di Pedoni e la loro altezza nel gioco
+dictP = {20 : 100, 30 : 70, 40 : 60, 50 : 40, 60 : 20, 70 : 10, 80 : 0}
+dictp = {90 : 100, 80 : 70, 70 : 60, 60 : 40, 50 : 20, 40 : 10, 30 : 0}
+
 # tabella delle direzioni che pedone e re possono assumere
 N, E, S, W = -10, 1, 10, -1
 directions = {
@@ -46,55 +48,12 @@ directions = {
     'K': (N, E, S, W, N+E, S+E, S+W, N+W)
 }
 
-# tabella di valutazione scacchi
-pst = {
-    'P': (0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 198, 198, 198, 198, 198, 198, 198, 198, 0,
-        0, 178, 198, 198, 198, 198, 198, 198, 178, 0,
-        0, 178, 198, 198, 198, 198, 198, 198, 178, 0,
-        0, 178, 198, 208, 218, 218, 208, 198, 178, 0,
-        0, 178, 198, 218, 238, 238, 218, 198, 178, 0,
-        0, 178, 198, 208, 218, 218, 208, 198, 178, 0,
-        0, 178, 198, 198, 198, 198, 198, 198, 178, 0,
-        0, 198, 198, 198, 198, 198, 198, 198, 198, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-    'K': (0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 60098, 60132, 60073, 60025, 60025, 60073, 60132, 60098, 0,
-        0, 60119, 60153, 60094, 60046, 60046, 60094, 60153, 60119, 0,
-        0, 60146, 60180, 60121, 60073, 60073, 60121, 60180, 60146, 0,
-        0, 60173, 60207, 60148, 60100, 60100, 60148, 60207, 60173, 0,
-        0, 60196, 60230, 60171, 60123, 60123, 60171, 60230, 60196, 0,
-        0, 60224, 60258, 60199, 60151, 60151, 60199, 60258, 60224, 0,
-        0, 60287, 60321, 60262, 60214, 60214, 60262, 60321, 60287, 0,
-        0, 60298, 60332, 60273, 60225, 60225, 60273, 60332, 60298, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-}
+class Position(namedtuple('Position', 'board ep')):
 
-###############################################################################
-# Chess logic
-###############################################################################
-
-file_mosse = open(path_file_debug+"tracemosse.txt","w")
-file_mossa_migl = open(path_file_debug+"tracemossemigliori.txt","w")
-file_aggiorno_migliore = open(path_file_debug+"aggiornomigliori.txt","w")
-
-class Position(namedtuple('Position', 'board score wc bc ep kp')):
-    """ A state of a chess game
-    board -- a 120 char representation of the board
-    score -- the board evaluation
-    wc -- the castling rights
-    bc -- the opponent castling rights
-    ep - the en passant square
-    kp - the king passant square
-    """
     #genera tutte le mosse che un giocatore puo effettuare di tutti i pezzi di un giocatore
     def genMoves(self):
         # controllo se sono sotto scacco..
-        scacco = self.sotto_scacco()
+        scacco = self.kept_in_check()
         # per tutti i pezzi
         for i, p in enumerate(self.board):
             # se il pezzo è maiuscolo continuo perchè sto considerando i miei pezzi
@@ -111,8 +70,12 @@ class Position(namedtuple('Position', 'board score wc bc ep kp')):
                     if self.board[j].isspace(): break
                     # Non mangio i miei pezzi
                     if q.isupper(): break
-                    # gestione di movimento dei pedoni in avanti, avanti di due, diagonale
-                    if p == 'P' and d in (N+W, N+E) and q == '.' : break
+                    # Gestione del movimento dei pedoni in diagonale e controllo per en passant
+                    # (muovi in diag solo se mangi qualcuno o en passant)
+                    if p == 'P' and d in (N+W, N+E) and q == '.' and j != self.ep : break
+                    # senza enpassant
+                    # if p == 'P' and d in (N+W, N+E) and q == '.' : break
+                    # Gestione del movimento dei pedoni in verticale di 1 o 2 caselle
                     if p == 'P' and d in (N, 2*N) and q != '.': break
                     # solo nelle posizioni 81/88(quelle iniziali) puoi muovere il pedone di 2 in verticale
                     if p == 'P' and d == 2*N and (i < A1+N or self.board[i+N] != '.'): break
@@ -129,13 +92,13 @@ class Position(namedtuple('Position', 'board score wc bc ep kp')):
                     if p == 'K' and (self.board[j+11] == 'k'): break    #S+E
                     # Aggiungi mossa
                     yield (i, j)
-                    # Stop crawlers from sliding
+                    # Non continuare
                     if p in ('P', 'K'): break
-                    # No sliding after captures
+                    # Non continuare oltre perche c'è un altro pezzo
                     if q.islower(): break
 
     # funzione che determina se la tabella è in una condizione di scacco
-    def sotto_scacco(self):
+    def kept_in_check(self):
     # controllo che non si sia in una situazione di scacco
         for i, p in enumerate(self.board):
             # sono sotto scacco se un pedone è nella cella diagonale(sx o dx) al re, è l'unico modo per avere uno scacco se si
@@ -145,223 +108,140 @@ class Position(namedtuple('Position', 'board score wc bc ep kp')):
         return False
 
     # rotazione della scacchiera
+    # [::-1] capovolge la lista di caratteri/scacchiera
     def rotate(self):
         return Position(
-            self.board[::-1].swapcase(), -self.score,
-            self.bc, self.wc, 119-self.ep, 119-self.kp)
+            self.board[::-1].swapcase(), 119 - self.ep)
 
     # effettua la mossa, aggiorna score e torna la nuova tabella aggiornata
     def move(self, move):
         # i casella iniziale della mossa move, j casella in cui ci si intende muovere
         i, j = move
-        #
+        # pezzo corrente(p) e pezzo che c'è nella futura locazione(q)
         p, q = self.board[i], self.board[j]
+        # funzione anonima che mette il pezzo p nel posto i
         put = lambda board, i, p: board[:i] + p + board[i+1:]
-        # Copy variables and reset ep and kp
         board = self.board
-        wc, bc, ep, kp = self.wc, self.bc, 0, 0
-        score = self.score + self.value(move)
-        # Actual move
+        # riaggiorno en passant a zero
+        ep = 0
+        # Compi la mossa, nel posto j metti ciò che era in posto i ed in posto i metti '.'
         board = put(board, j, board[i])
         board = put(board, i, '.')
 
-        # Special pawn stuff
+        # EN PASSANT, se mossa è in diagonale e in q c'è '.' allora in j+S metti '.'
+        # al posto di 'p'
         if p == 'P':
-            if j - i == 2*N:
-                ep = i + N
-            if j - i in (N+W, N+E) and q == '.':
-                board = put(board, j+S, '.')
-        # We rotate the returned position, so it's ready for the next player
-        return Position(board, score, wc, bc, ep, kp).rotate()
+            if j - i in (N+W, N+E) and q == '.':    # se il diagonale non è un pedone da mangiare sei in enpassant...
+                board = put(board, j+S, '.')        # metti nella casella in verticale di uno . perchè è li dove sta il pezzo da catturare
+            if j - i == 2*N :                       # se la mossa è avanti di 2...
+                ep = i + N                          # possibile enpassant in i+N
+        # rotazione per prossimo giocatore
+        return Position(board, ep).rotate()
 
-    # calcolo del valore della mossa che si intende fare sulla tabella corrente
-    def value(self, move):
-        # voglio andare da i a j (mossa in input)
-        i, j = move
-        # p pezzo in i e j pezzo in j
-        p, q = self.board[i], self.board[j]
-        # lo score diventa la differenza tra il pezzo nel posto vecchio ed il pezzo nel posto nuovo
-        score = pst[p][j] - pst[p][i]
-        # se in q(posizione in cui voglio andare) c'è un pezzo nemico lo score incrementa del suo valore che occupava
-        if q.islower():
-            incremento_per_cattura = pst[q.upper()][j]
-            score += incremento_per_cattura
-
-        if p == 'P':
-            #se la posizione in cui voglio andare è la PROMOZIONE  ## decreto vittoria
-            if A8 <= j <= H8:#j <= H8:
-                # incremento lo score con quello della regina (meno quello del pedone che ho promosso) ###VITTORIA
-                #score += pst['Q'][j] - pst['P'][j]
-                score += 160000000
-
-        # se vado in una posizione che rischio di essere mangiato da un altro pedone disincentivo a scegliere quella mossa
-        # decrementando lo score
-        if p == 'P':
-            diag_sx = self.board[j-11]
-            centr = self.board[j-10]
-            diag_dx = self.board[j-9]
-            if (diag_sx == 'p' or diag_dx == 'p' or diag_sx == 'k' or diag_dx == 'k' or centr == 'k'):
-                score -= pst[p][j]/2
-
-        return score
-
-Entry = namedtuple('Entry', 'depth score gamma move')
-tp = OrderedDict()
-
-
-################################################################################
-# User interface
-###############################################################################
-
-# Python 2 compatability
-if sys.version_info[0] == 2:
-    input = raw_input
-
-# funzione che mi traduce una posizione da a4 a 61
+# funzione che mi traduce una posizione da a1 a 21
 def parse(c):
     fil, rank = ord(c[0]) - ord('a'), int(c[1]) - 1
     return A1 + fil - 10*rank
 
-# funzione che mi mette la posizione da numero 61 ad a4
+# funzione che mi mette la posizione da numero 21 ad a1
 def render(i):
     rank, fil = divmod(i - A1, 10)
     return chr(fil + ord('a')) + str(-rank + 1)
 
-contatorefile = 0
-
-ui = None
-TABELLA = None
-Dialog = None
-app = None
-inexec = False
-contatorefile = 0
 def main():
-    import sys
-    global ui
-    global Dialog
-    global app
-    global TABELLA
-    global inexec
-    global out_file
-    pathfile = path_file_debug+("tabelleconsiderate%d.txt" % (contatorefile))
-    out_file = open(pathfile,"w")
-    print("inesec:", inexec)
+    # variabili globali per GUI
+    global ui, Dialog, app, ChessBoard, inexec
+
     if app is None:
         app = QtGui.QApplication(sys.argv)
-    print(app)
     Dialog = QtGui.QDialog()
-    print(Dialog)
     ui = Ui_Dialog()
-    ui.setupUi(Dialog, TABELLA)
+    ui.setupUi(Dialog, ChessBoard)
     ui.bottone.clicked.connect(callbackperGUI)
     ui.comboBox.currentIndexChanged['QString'].connect(handleChanged)
-    ui.comboBox.highlighted['QString'].connect(handleChanged) ##### questo sottolineato fa vedere le mosse
-    TABELLA = Position(config_iniziale, 0, (True,True), (True,True), 0, 0)
-    print(' '.join(TABELLA.board))
-    global contatorefile
-    ui.colora(TABELLA)
-    posizioni = TABELLA.genMoves()
+    ui.comboBox.highlighted['QString'].connect(handleChanged)
+    ChessBoard = Position(config_iniziale, 0)
+    #print(' '.join(ChessBoard.board))
+    ui.colora(ChessBoard)
     ui.comboBox.clear()
+
     # stampo tutte le mie mosse possibili in questo istante da mostrare all'utente per la scelta
-    for j in posizioni:
+    for j in ChessBoard.genMoves():
         posizione = render(j[0]) + render(j[1])
-        print (posizione) #render serve per stamparmelo nel formato [a2a3]
+        #print (posizione)
         ui.comboBox.addItem(posizione)
     Dialog.show()
-    #print("appexec:",app.exec_())
+    # se non ho già l'app che gira eseguila
     if not inexec:
         inexec = True
         app.exec_()
 
-#  illumina le mosse al passare del mouse sulle opzioni del menù a tendina
+#  Illumina le mosse al passare del mouse sulle opzioni del menù a tendina
 def handleChanged(text):
     global Dialog
     text = str(text)
     # se la stringa è alpfanumerica e di 4 lettere/numeri allora è una mossa
     if (text.isalnum() and len(text)==4):
         # riaggiorna
-        ui.colora(TABELLA)
-        # label attuale del pezzo
-        partenza = parse(str(text[0:2]))
-        stringa_partenza = "l%d" % partenza
-        # label di arrivo del pezzo
-        arrivo = parse(str(text[2:4]))
-        stringa_arrivo = "l%d" % arrivo
-        # coloro la label di arrivo
-        label_da_colorare_arrivo = Dialog.findChild(QtGui.QLabel, stringa_arrivo)
-        label_da_colorare_arrivo.setStyleSheet("QLabel {background-color: rgb(173, 220, 243);border: 1px solid rgb(0, 0, 0);}")
+        ui.colora(ChessBoard)
         # coloro la label di partenza
-        label_da_colorare_partenza = Dialog.findChild(QtGui.QLabel, stringa_partenza)
-        label_da_colorare_partenza.setStyleSheet("QLabel {background-color: rgb(173, 220, 243);border: 1px solid rgb(0, 0, 0);}")
+        label_A = Dialog.findChild(QtGui.QLabel, "l%d" % parse(str(text[0:2])))
+        label_A.setStyleSheet("QLabel {background-color: rgb(173, 220, 243);border: 1px solid rgb(0, 0, 0);}")
+        # coloro la label di arrivo
+        label_B = Dialog.findChild(QtGui.QLabel, "l%d" % parse(str(text[2:4])))
+        label_B.setStyleSheet("QLabel {background-color: rgb(173, 220, 243);border: 1px solid rgb(0, 0, 0);}")
 
+# Alla pressione del tasto Move viene richiamata questa procedura
 def callbackperGUI():
-    global TABELLA
-    global ui
-    global Dialog
-    global app
-    global file_mossa_migl
-
-    print(' '.join(TABELLA.board))
-
+    # var globali per GUI
+    global ChessBoard, ui
+    # mossa da fare nella scacchiera
     move = None
+    # prelevo la mossa dalla combo box
+    textCB = str(ui.comboBox.currentText())
+    move = parse(textCB[0:2]), parse(textCB[2:4])
+    # muovi la scacchiera in seguito alla mossa decisa da PLAYER
+    ChessBoard = ChessBoard.move(move)
+    # ridiisegna la scacchiera nuova
+    ui.colora(ChessBoard.rotate())
 
-    print ("testo nella finestra %s\n" % ui.comboBox.currentText())
-    # ciclo che aspetta che l'utente immetta una giusta mossa
-    crdn = str(ui.comboBox.currentText()) #input("Your move: ")
-    move = parse(crdn[0:2]), parse(crdn[2:4])    #parse ti mette dal formato a4 a 71
-    # mossa del giocatore persona
-    TABELLA = TABELLA.move(move)
-    #global xxx
-    #print ("valore di XXX:",xxx)
-    # visualizza la mia mossa che ho appena fatto
-    print(' '.join(TABELLA.rotate().board))
-    ui.colora(TABELLA.rotate())
-    Dialog.update()
+    score = alphabetamax(ChessBoard, -INF, +INF, depth, True)
+    # mossa pensata dalla CPU
+    move = move_cpu
+    # calcolo la nuova scacchiera in seguito alla mossa CPU
+    ChessBoard = ChessBoard.move(move)
+    # aggiorno le statistiche dei due giocatori (numero di pedoni)
+    pawns_player, pawns_cpu = getStatistics(ChessBoard)
+    ui.label_20.setText("%d pawns" % pawns_player)
+    ui.label_21.setText("%d pawns" % pawns_cpu)
 
-    score = alphabetamax(TABELLA, -9999999999, +9999999999, 5, True)
-    move = tentativo_mossa
-    print ("score con minmax a b: %d\n" % score)
-    if (tentativo_mossa is not None):
-        stringa = "avrei trovato la mossa: %s - %s\n" %(render(119 - tentativo_mossa[0]), render(119 - tentativo_mossa[1]))
-        print(stringa)
-        file_mossa_migl.write(stringa)
-    # controllo che qualcuno non abbia vinto/perso
-    print("move: ", move," - score: ", score)
-    # stamperai in una label il risultato, blocchi il tasto e chiedi se vuole una nuova partita e rifai il main
-    if score <= -MATE_VALUE:
-        TABELLA = TABELLA.move(move)
-        ui.colora(TABELLA)
-        popupVittoriaSconfitta("VINTO")
-        #print("You won")
-        #break
-    elif score >= MATE_VALUE:
-        TABELLA = TABELLA.move(move)
-        ui.colora(TABELLA)
-        popupVittoriaSconfitta("PERSO")
-        #print("You lost")
-        #break
+    # controllo che la partita non sia terminata con SCONFITTA o VITTORIA
+    if testTerminazione(ChessBoard) and score < 0:
+        ui.colora(ChessBoard)
+        popupVittoriaSconfitta("WIN")
+
+    elif testTerminazione(ChessBoard) and score > 0:
+        ui.colora(ChessBoard)
+        popupVittoriaSconfitta("LOSE")
+    # vado avanti nella partita
     else:
-        # stampa la mossa corretta del CPU nel formato esempio : a2b3
-        # il 119- serve per visualizzarlo dalla parte dello sfidante
-        print("My move:", render(119-move[0]) + render(119-move[1]))
-        # faccio la mossa CPU
-        TABELLA = TABELLA.move(move)
-        ui.colora(TABELLA)
-        #Dialog.show()
-        posizioni = TABELLA.genMoves()
+        ui.colora(ChessBoard)
+        posizioni = ChessBoard.genMoves()
         ui.comboBox.clear()
-        # stampo tutte le mie mosse possibili in questo istante da mostrare all'utente per la scelta
-        for j in posizioni:
+        # se non ho mosse possibili dichiari persa con SCACCO MATTO
+        if (len(list(posizioni)) == 0):
+            popupVittoriaSconfitta("LOSE - CHECKMATE")
+        # mostro all'utente nella ComboBox tutte le mosse che può effettuare
+        for j in ChessBoard.genMoves():
             posizione = render(j[0]) + render(j[1])
-            print (posizione) #render serve per stamparmelo nel formato [a2a3]
             ui.comboBox.addItem(posizione)
 
 # popup che compare quando si ha un risultato del math, chiede inoltre se si vuole fare un'altra partita
 def popupVittoriaSconfitta(ris):
     global Dialog
-    global app
-    Stringa = "HAI %s ! \n VUOI GIOCARE ANCORA? \n" % ris
-    reply = QtGui.QMessageBox.question(Dialog, 'Message',
+    # stringa di richiesta gioco
+    Stringa = "YOU %s ! \n DO YOU WANT RESTART THE GAME? \n" % ris
+    reply = QtGui.QMessageBox.question(Dialog, 'GAME OVER',
             Stringa, QtGui.QMessageBox.Yes |
             QtGui.QMessageBox.No, QtGui.QMessageBox.No)
     # se l'utente intende fare un'altra partita richiama main()
@@ -370,63 +250,119 @@ def popupVittoriaSconfitta(ris):
     else:
         exit()
 
+# funzione che torna il conto dei pedoni del PLAYER e del CPU e le ritorna in una coppia
+def getStatistics(t):
+    pawns_player = 0
+    pawns_cpu = 0
+    for j in range(21, 99):
+        p = t.board[j]
+        if p == 'P':
+            pawns_player += 1
+        if p == 'p':
+            pawns_cpu += 1
+    return (pawns_player, pawns_cpu)
 
-# variabile globale che identifica la prossima mossa CPU
-tentativo_mossa = None
-def alphabetamax(t, alpha, beta, depthLeft, primo = False):
-    global tentativo_mossa
-    global file_aggiorno_migliore
-    #if tentativo_mossa is not None:
-        #print("[MAX]tentativo mossa: "+render(119-tentativo_mossa[0]) + " - " + render(119-tentativo_mossa[1]) + "\n")
-    if(depthLeft == 0):
-        return t.score
-    mosse_poss = t.genMoves()
-    for m in mosse_poss :
-        stringa = render(m[0]) + " - " + render(m[1]) + "\n"
-        if primo:
-            print (stringa)
-            file_mosse.write(stringa)
-    file_mosse.write(' '.join(t.board))
-    for move in sorted(t.genMoves(), key=t.value, reverse=True):
+
+##############################################################################################
+#                                                                                            #
+#    ALGORITMO MINMAX CON POTATURA ALPHABETA, FUNZIONE DI VALUTAZIONE E TEST TERMINAZIONE    #
+#                                                                                            #
+##############################################################################################
+
+# GIOCATORE MAX DELL'ALGORITMO MINMAX CON POTATURA ALPHA-BETA
+def alphabetamax(t, alpha, beta, d, recordmove = False):
+    global move_cpu
+
+    if testTerminazione(t) or (d == 0):
+        return h(t)
+
+    s = -INF
+    for move in sorted(t.genMoves()):
         # chiamo alphabetamin
-        s = alphabetamin(t.move(move),alpha, beta, depthLeft - 1)
+        s = max(s, alphabetamin(t.move(move),alpha, beta, d - 1))
 
-        if s >= beta:
-            stringa = "aggiorno la mossa a: "+render(move[0]) + " - " + render(move[1]) + "\n"
-            if primo:
-                print ('s>=beta e primo vale:',primo)
-                print (stringa)
-                file_aggiorno_migliore.write(stringa)
-                tentativo_mossa = move
-            return beta
+        if s >= beta: return s
         # penso che sia la sorta di potatura, tutto buono se sta sopra a gamma
         if s > alpha:
-            stringa = "aggiorno la mossa a: "+render(move[0]) + " - " + render(move[1]) + "\n"
-            if primo:
-                file_aggiorno_migliore.write(stringa)
-                tentativo_mossa = move
+            if recordmove:
+                move_cpu = move
             alpha = s
-    return alpha
+    return s
 
+# GIOCATORE MIN DELL'ALGORITMO MINMAX CON POTATURA ALPHA-BETA
+def alphabetamin(t, alpha, beta, d):
 
-def alphabetamin(t, alpha, beta, depthLeft):
-    # se la profondità permessa è 0 torna
-    if(depthLeft == 0):
-        return -t.score
-    # insieme delle mosse possibili
-    mosse_poss = t.genMoves()
+    if testTerminazione(t) or (d == 0):
+        #print ("chiamo -h(t) per test Terminazione\n")
+        return -h(t)
+
+    s = +INF
     # per ogni mossa che genera un sucessore
-    for move in sorted(t.genMoves(), key=t.value, reverse=True):
+    for move in sorted(t.genMoves()):
         # chiamo alphabetamax
-        s = alphabetamax(t.move(move),alpha, beta, depthLeft - 1)
+        s = min(s, alphabetamax(t.move(move),alpha, beta, d - 1))
         # se s è minore/uguale di Alfa fai la potatura e non visitare quel sottoalbero
-        if s <= alpha:
-            return alpha
+        if s <= alpha: return s
         # aggiornamento di Beta, se s è minore di Beta corrente
-        if s < beta:
-            beta = s
-    return beta
+        beta = min(beta, s)
+    return s
 
+# FUNZIONE DI VALUTAZIONE DELLA ChessBoard CORRENTE
+def h(tab):
+    # inizializzazione dello score a zero
+    score = 0
+    # per ogni posizione della scacchiera
+    for j in range(21, 99):
+        # prelevo il pezzo alla posizione j che sto considerando
+        p = tab.board[j]
+        if p == 'P':
+            # incremento per pedone ancora in gioco +10
+            score += 10
+            # incremento dello score per l'altezza del pedone che sto considerando
+            score += dictP[j - (j%10)]
+            # decremento se metto un pedone in difficoltà
+            diag_sx = tab.board[j-11]
+            centr = tab.board[j-10]
+            diag_dx = tab.board[j-9]
+            if (diag_sx == 'p' or diag_dx == 'p' or diag_sx == 'k' or diag_dx == 'k' or centr == 'k'):
+                score = score / 1.5
+            # impenno il valore al positivo per vittoria
+            if j in range (21, 29):
+                score = +99999
 
+        # guardo i pedoni avversari come sono posizionati
+        if p == 'p':
+            # decremento per pedone ancora in gioco dell'avversario
+            score -= 10
+            # decremento dello score per l'altezza del pedone avversario che sto considerando
+            score -= dictp[j - (j%10)]
+            # incremento lo score se ho la possibilità di mangiare un pedone
+            diag_sx = tab.board[j+11]
+            centr = tab.board[j+10]
+            diag_dx = tab.board[j+9]
+            if (diag_sx == 'P' or diag_dx == 'P' or diag_sx == 'K' or diag_dx == 'K' or centr == 'K'):
+                score = score*1.5
+            # impenno il valore al negativo per sconfitta
+            if j in range (91, 99):
+                score = -99999
+
+    return score
+
+# TEST DI TERMINAZIONE PER UNA ChessBoard DATA IN INPUT
+def testTerminazione(t):
+    # se nelle righe di fondo scacchiera c'è un pedone avversario torno True, False altrimenti
+    for i in range(21, 29):
+        #if t.board[i] != '.' and t.board[i] != 'k' and t.board[i] != 'K' and t.board[i] != 'p':
+        if t.board[i] == 'P':
+            return True
+    for i in range(91, 99):
+        #if t.board[i] != '.' and t.board[i] != 'k' and t.board[i] != 'K' and t.board[i] != 'P':
+        if t.board[i] == 'p':
+            return True
+    return False
+
+# MAIN()
 if __name__ == '__main__':
     main()
+
+
