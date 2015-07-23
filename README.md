@@ -4,5 +4,4 @@
 # The rules are the same of Chess.
 # Language : Python
 # Graphics : PyQT4 Libraries
-# Move on directory project and write this command in terminal:
-  $ python logic.py
+# Move on directory project and write this command in terminal:/n  $ python logic.py
